@@ -134,7 +134,7 @@ def wnc_wps_test(controller, repeater):
     sendln(controller, 'env -i ACTION=\"pressed\" BUTTON=\"wps\" /sbin/hotplug-call button')
     sendln(repeater, 'env -i ACTION=\"pressed\" BUTTON=\"wps\" /sbin/hotplug-call button')
     wps_success = False
-    repeater_wifi = is_wifi_on(repeater, 35, "Repeater")
+    repeater_wifi = is_wifi_on(repeater, 12, "Repeater")
     if repeater_wifi:
         global r_wps_ready
         r_wps_ready = time.time()
@@ -154,28 +154,44 @@ def wnc_wps_test(controller, repeater):
         r_wifi = False
         global c_wifi_ready
         global r_wifi_ready
+        c_wifi_ready = 0
+        r_wifi_ready = 0
+        retry = 0
         while True:
             if not c_wifi:
                 c_wifi = is_wifi_on(controller, 1, "Controller WIFI")
-            elif c_wifi_ready == 0:
+            if c_wifi and c_wifi_ready == 0:
                 c_wifi_ready = time.time()
-
             if not r_wifi:
                 r_wifi = is_wifi_on(repeater, 1, "Repeater WIFI")
-            elif r_wifi_ready == 0:
+            if r_wifi and r_wifi_ready == 0:
                 r_wifi_ready = time.time()
-
             if c_wifi and r_wifi:
                 print "Controller wifi and Repeater wifi ready"
-                wifi_ready = time.time()
+                print "Hidden on:Controller wifi ready: " + str(c_wifi_ready - hidden_start)
+                print "Hidden on:Repeater wifi ready: " + str(r_wifi_ready - hidden_start)
+                #print "r_wifi_ready " + str(r_wifi_ready) + "hidden_start " + str(hidden_start)
                 break
+            if not c_wifi or not r_wifi:
+                retry = retry + 1
+                if (retry > 7):
+                    status = "FAILED"
+                    print "WiFi not ready after hide_ssid=1" + " c_wifi_ready status: " + str(c_wifi) + " r_wifi_ready: " +str(r_wifi)
+                    break
+
+        if c_wifi and r_wifi:
+            status = "OK"
+            print "OK"
+        else:
+            status = "FAILED"
+            print "Reassociate FAILED"
+        return status
 
         if c_wifi and r_wifi:
             print "Do ping"
-            r = sendln(repeater, "ping -c 10 -W 1 192.168.2.1", "controller")
-            rc = sendln(controller, "ping -c 10 -W 1 192.168.2.2", "Controller")
+            r = sendln(repeater, "ping -c 10 -W 1 192.168.2.101", "Repeater")
+            rc = sendln(controller, "ping -c 10 -W 1 192.168.2.197", "Controller")
             rc = sendln(controller, "echo $?")
-            print "Ping result: " + rc
             if "0" in rc:
                 print "Ping successfully"
                 status = "OK"
@@ -200,84 +216,6 @@ def wnc_wps_test(controller, repeater):
                 print "Cannot ping repeater"
         #print "Hidden on , WIFI ready time: " + str(wifi_ready-hidden_start)
     return status
-
-def wps_test(controller, repeater):
-    status = "FAILED"
-    sendln(controller)
-    sendln(repeater)
-    sendln(controller)
-    sendln(repeater)
-    sendln(controller)
-    sendln(repeater)
-    time.sleep(2)
-    print("Trigger WPS")
-    trigger_time = time.time()
-    send_no_read(controller, "dcli sysmgr sys button-press wps 100")
-    send_no_read(repeater, "dcli sysmgr sys button-press wps 100")
-    wps_success = False
-    expired = False
-    first_reg = False
-    final = False
-    start = time.time()
-    re_association_time=0
-    wps_ok_time=0
-    ok_time=0
-    first_reg_time = 0
-    while True:
-        res = controller.readline()
-        if res:
-            #sys.stdout.write("controller: %s " % res)
-            cprint("Controller: " + res, 'red', 'on_green')
-        repeater_res = repeater.readline()
-        if repeater_res:
-            #sys.stdout.write("repeater: %s " % repeater_res)
-            cprint("Repeater: " + repeater_res, 'blue', 'on_white')
-
-        if not wps_success and "wps-result" in res:
-            if "success" in res:
-                print "===>WPS success"
-                wps_success=True
-                wps_ok_time = time.time()
-            else:
-                print "!!!! WPS failed"
-
-        if not first_reg and "station-registered" in res:
-            print "===> First registration ok"
-            first_reg_time = time.time()
-            first_reg = True
-
-        if wps_success and first_reg and not expired and "station-expired" in res:
-            print "Reassociation"
-            expired = True
-            re_association_time = time.time()
-
-        if expired and "station-registered" in res:
-            cprint("Success to regssiter. DONE", 'green', 'on_red')
-            status = "OK"
-            ok_time = time.time()
-            final = True
-            break
-
-        """
-        if wps_success and first_reg and not final:
-            send_no_read(controller, "iwconfig ath0")
-            send_no_read(repeater, "iwconfig ath0")
-        """
-
-        now = time.time()
-        if (now-start) > 600:
-            print " !!!! TIMEOUT " + "WPS: " + str(wps_success) + "first_reg: " + str(first_reg) + ", expired: " + str(expired) + " !!!!"
-            break
-
-    print "STATISTICS: wps_success: "+str(wps_ok_time-trigger_time)+" first reg: "+str(first_reg_time-wps_ok_time)+" reassoication start: "+str(re_association_time-wps_ok_time)+" re-registration ok time: "+str(ok_time-re_association_time) 
-    print "RAW: trigger time: "+str(trigger_time)+" wps_success: "+str(wps_ok_time)+" first register time: "+str(first_reg_time)+" reassoication time: "+str(re_association_time)+" ok_time: "+str(ok_time)
-    sendln(repeater, "p2-factory-reset")
-    sendln(controller, "p2-factory-reset")
-    time.sleep(2)
-    sendln(repeater, "reboot")
-    sendln(controller, "reboot")
-    return status
-
 
 if __name__ == '__main__':
     total = len(sys.argv)
@@ -319,24 +257,24 @@ if __name__ == '__main__':
         flushOutput(repeater)
 
         c_start_time = time.time()
-        controller_wifi = is_wifi_on(controller, 35, "Controller")
+        controller_wifi = is_wifi_on(controller, 40, "Controller")
         if not controller_wifi:
             print "Controller is not ready"
-            exit()
+
         c_ready_time = time.time()
 
         flushOutput(controller)
         flushOutput(repeater)
 
-        r_wifi_ready=0
-        c_wifi_ready=0
-        rc = wnc_wps_test(controller, repeater)
+        rc = "FAILED"
+        if controller_wifi:
+            rc = wnc_wps_test(controller, repeater)
         if rc == "OK":
             ok = ok + 1
         print "controller wifi ready time: " + str(c_ready_time - c_start_time)
         print "WPS triggered, repeater WPS ready time: " + str(r_wps_ready-trigger_time)
-        print "After wps success, controller wifi ready time: " + str(c_wifi_ready - hidden_start)
-        print "After wps success, repeater wifi ready time: " + str(r_wifi_ready - hidden_start)
+        #print "After wps success, controller wifi ready time: " + str(c_wifi_ready - hidden_start)
+        #print "After wps success, repeater wifi ready time: " + str(r_wifi_ready - hidden_start)
         sys.stdout.write("Test Result: %s \n" % rc)
         print("Test times : %d, OK times: %d" % (i,ok))
         i = i + 1
@@ -346,11 +284,13 @@ if __name__ == '__main__':
 
 	controller.write("reboot && exit\n")
         repeater.write("reboot && exit\n")
-        time.sleep(40)
+        time.sleep(60)
 
         a = randint(1,50)
         print "Add random delay " + str(a)
         time.sleep(a)
 
+        c2_rssi.close()
+        r2_rssi.close()
         controller.close()
         repeater.close()
