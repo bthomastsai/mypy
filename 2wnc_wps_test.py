@@ -103,7 +103,6 @@ def is_wifi_on(dut, retry=5, dut_str=" "):
     a=0
     while i<retry:
         begin = time.time()
-        i = i + 1
         rc = sendln(dut, "iwconfig ath0", dut_str, False)
         for line in rc.split(" "):
             match = re.findall("Rate:", line)
@@ -112,6 +111,7 @@ def is_wifi_on(dut, retry=5, dut_str=" "):
                 break
         rate = 0
         if a:
+            i = i + 1 # count retry after wifi on
             rate = int(float(a[1]))
             print dut_str + ":" + " ath0 bit rate: %5f" % float(a[1])
             if rate != 0:
