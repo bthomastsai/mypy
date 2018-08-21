@@ -70,13 +70,17 @@ def sendln(dut, cmd = "\n", dut_str=" ", dbgout=True):
     return res
 
 def reset_controller_default(dut):
-    sendln(dut, "cp -f /root/AP-wireless /etc/config/wireless", "Controller")
+    sendln(dut, "dmesg -c", "Controller", False)
+    sendln(dut)
+    sendln(dut, "cp -f /root/AP_wireless /etc/config/wireless", "Controller")
     sendln(dut, "sync;sync;sync", "Controller")
     time.sleep(1)
     sendln(dut, "wifi load", "Controller")
 
 def reset_repeater_default(dut):
-    sendln(dut, "cp -f /root/STA-wireless /etc/config/wireless", "Repeater")
+    sendln(dut, "dmesg -c", "Controller", False)
+    sendln(dut)
+    sendln(dut, "cp -f /root/STA_wireless /etc/config/wireless", "Repeater")
     sendln(dut, "sync;sync;sync", "Repeater")
     sendln(dut)
     flushOutput(dut)
@@ -144,7 +148,7 @@ def wnc_wps_test(controller, repeater):
     else:
         a = time.time()
         print "!!!! WPS Failed !!!! " + str(a-trigger_time)
-        #exit()
+        exit()
 
     flushOutput(controller)
     flushOutput(repeater)
@@ -205,9 +209,9 @@ if __name__ == '__main__':
 
     sys.stdout.write("open %s \n" % str(sys.argv[1]))
     sys.stdout.write("open %s \n" % str(sys.argv[2]))
-    controller = telnetlib.Telnet(str(sys.argv[1]))
-    reset_controller_default(controller)
-    controller.close()
+    #controller = telnetlib.Telnet(str(sys.argv[1]))
+    #reset_controller_default(controller)
+    #controller.close()
 
     ttimes = 1
     ok = 0;
@@ -220,9 +224,15 @@ if __name__ == '__main__':
         repeater.set_debuglevel(0)
         sniffer.set_debuglevel(0)
 
+        # Reset Controller wireless configuration
+        sys.stdout.write("Reset AP config\n")
+        sys.stdout.flush()
+        reset_controller_default(controller)
+
 	start_time = time.time()
         tfile = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        sendln(sniffer, "tcpdump -i ath0 -s 0 -w /tmp/usb/sniffer/0GB/"+tfile+"_Test_"+str(ttimes)+".pcap -K -n &", "Sniffer")
+        sniffer_file = "/tmp/usb/sniffer/0GB_OPEN/"+tfile+"_Test_"+str(ttimes)+".pcap"
+        sendln(sniffer, "tcpdump -i ath0 -s 0 -w "+sniffer_file+" -K -n &", "Sniffer")
         sys.stdout.write("Reset STA config\n")
         sys.stdout.flush()
 	reset = False
@@ -271,17 +281,21 @@ if __name__ == '__main__':
 	end_time = time.time()
         print "=====> Cost time: "+str(end_time - start_time)
 
-        #Sync Sniffer packet
         sendln(sniffer,"killall tcpdump", "Sniffer", False)
         sendln(sniffer, " ", " ", False)
         sendln(sniffer, " ", " ", False)
         sendln(sniffer,"sync;sync;sync", "Sniffer", False)
-        #sendln(sniffer, "cp /tmp/Test"+str(i)+".pcap /tmp/usb/sniffer/gs2020e/")
-        #sendln(sniffer, "rm -f /tmp/Test"+str(i)+".pcap")
+
+        #Just save failed Sniffer packet
+        if rc == "OK":
+            sendln(sniffer, "rm -f " + sniffer_file)
+            sendln(sniffer, " ", " ", False)
+            sendln(sniffer,"sync;sync;sync", "Sniffer", False)
+
         ttimes = ttimes + 1
 
-        #if rc == "FAILED":
-        #   exit()
+        if rc == "FAILED":
+           exit()
 
         #sendln(controller, "rm -f /etc/config/wireless")
         #sendln(repeater, "rm -f /etc/config/wireless")
