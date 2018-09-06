@@ -1,25 +1,35 @@
 #!/bin/sh
 
-dmesg -c
+#dmesg -c
 ttimes=1
 while [ 1 ]; do
-	wifi
-	sleep 2
+    echo 3 > /proc/sys/vm/drop_caches 
+    sleep 1 
+    cat /proc/meminfo 
+
+	wifi reload
+	sleep 3
 	hrate=0
 
 	while [ 1 ]; do
+            ifconfig ath09 >/dev/null
+            if [ "$?" != "0" ]
+            then
+                echo "Interface no exist"
+                exit
+            fi
     		if [ "$hrate" == "0" ] 
-    			then
-			iwconfig ath09
+    		then
+			    iwconfig ath09
         		hrate=$(iwconfig ath09 | grep "Bit Rate" | awk '{print $2}' | awk -F':' '{print $2}'| awk -F"." '{print $1}')
-			echo "hrate $hrate"
+			    echo "hrate $hrate"
         		sleep 5
     		else
-			echo "hrate $hrate"
+			    echo "hrate $hrate"
         		break
     		fi
 	done
-	dmesg -c
+	#dmesg -c
 	uptime
 	echo "ath09 associate OK, Test times $ttimes"
 	ttimes=$(( $ttimes + 1 ))

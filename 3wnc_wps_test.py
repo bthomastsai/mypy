@@ -10,16 +10,9 @@ from random import randint
 import datetime
 
 
-hidden_start=0
-c_wifi_ready=0
-r_wifi_ready=0
-r_wps_ready=0
-trigger_time=0
-c2_rssi=telnetlib.Telnet()
-r2_rssi=telnetlib.Telnet()
 def usage():
     print("Usage: ")
-    print("\t %s /dev/ttyUSB0(controller_ip) /dev/ttyUSB1(repeater_ip) ==> 1:console mode 0:telnet mode" % str(sys.argv[0]))
+    print("\t %s controller_ip repeater_ip " % str(sys.argv[0]))
     exit()
 
 def config_com(dut):
@@ -41,8 +34,6 @@ def device_open(dut, port=" "):
         exit()
 
 def send_no_read(dut, cmd="\n", dut_str=" "):
-    #dut.flushInput()
-    #dut.flushOutput()
     dut.write(cmd + "\n")
 
 def flushOutput(dut):
@@ -50,8 +41,6 @@ def flushOutput(dut):
         try:
             res = dut.read_until("root@OpenWrt:/#", 1)
             if "OpenWrt" in res:
-                #print "Flush out: " + res
-                #print "Flush output"
 		flush_out = 1
             else:
                 break
@@ -60,9 +49,7 @@ def flushOutput(dut):
             break
     return
 
-def sendln(dut, cmd = "\n", dut_str=" ", dbgout=True):
-    #dut.flushInput()
-    #flushOutput(dut)
+def sendln(dut, cmd = "\n", dut_str=" ", dbgout=False):
     dut.write(cmd + "\n")
     res = dut.read_until("root@OpenWrt:/#", 100)
     if dbgout:
@@ -92,6 +79,21 @@ def reset_repeater_default(dut):
     else:
 	return False
 
+def repeater_wifi_reload(dut):
+    sys.stdout.write("Reload STA WiFi..... ")
+    flushOutput(dut)
+    rc = sendln(dut, "wifi reload", "Repeater")
+    #print "Reset Repeater" + rc
+    status = False
+    if "ath09" in rc and "OK" in rc:
+	status=True
+        sys.stdout.write("reload OK\n")
+    else:
+	status=False
+        sys.stdout.write("reload FAILED\n")
+    sys.stdout.flush()
+    return status
+
 def is_wifi_on(dut, retry=5, inf="ath0" ,dut_str=" "):
     print "Checking " + dut_str + " wifi status ...."
     i = 0
@@ -99,7 +101,7 @@ def is_wifi_on(dut, retry=5, inf="ath0" ,dut_str=" "):
     a=0
     while i<retry:
         begin = time.time()
-        rc = sendln(dut, "iwconfig "+inf, dut_str, True)
+        rc = sendln(dut, "iwconfig "+inf, dut_str, False)
         for line in rc.split(" "):
             match = re.findall("Rate:", line)
             if match:
@@ -115,7 +117,7 @@ def is_wifi_on(dut, retry=5, inf="ath0" ,dut_str=" "):
                 return wifi_on
         time.sleep(5)
         after = time.time()
-        print "loop: "+str(i) +" retry: "+str(retry)+" Time: "+str(after-begin)
+        print "loop: "+str(i) +" of retry: "+str(retry)+" Time: "+str(after-begin)
 
     return wifi_on
 
@@ -125,12 +127,7 @@ def wnc_wps_test(controller, repeater):
     sendln(repeater)
     sendln(controller)
     sendln(repeater)
-    sendln(controller)
-    sendln(repeater)
-    time.sleep(2)
-    time.sleep(2)
     cprint("Trigger WPS", 'red', 'on_green')
-    global trigger_time
     trigger_time = time.time()
     sendln(controller, 'hostapd_cli -p /var/run/hostapd-wifi0 -i ath08 wps_pbc')
     sendln(repeater, 'wpa_cli -p /var/run/wpa_supplicant-ath09 -i ath09 wps_pbc')
@@ -145,11 +142,15 @@ def wnc_wps_test(controller, repeater):
         r_wps_ready = time.time()
         print "===> WPS Success"
         wps_success = True
+        status = "OK"
+        print "WPS triggered, repeater WPS ready time: " + str(r_wps_ready-trigger_time)
     else:
         a = time.time()
         print "!!!! WPS Failed !!!! " + str(a-trigger_time)
+        status = "FAILED"
         exit()
 
+    """
     flushOutput(controller)
     flushOutput(repeater)
     if wps_success:
@@ -159,7 +160,7 @@ def wnc_wps_test(controller, repeater):
         while k<3:
             k=k+1
             rc = sendln(controller, "iwpriv ath08 get_hide_ssid", "Controller")
-            if "get_hide_ssid:1" in rc:
+           if "get_hide_ssid:1" in rc:
                 print "SSID is hidden"
                 break
             else:
@@ -200,8 +201,10 @@ def wnc_wps_test(controller, repeater):
         print "Hidden on:Controller wifi ready: " + str(c_wifi_ready - hidden_start)
         print "Hidden on:Repeater wifi ready: " + str(r_wifi_ready - hidden_start)
         status = "OK"
+    """
     return status
 
+TOTAL_TEST_TIME=2
 if __name__ == '__main__':
     total = len(sys.argv)
     if total < 3:
@@ -215,7 +218,7 @@ if __name__ == '__main__':
 
     ttimes = 1
     ok = 0;
-    while ttimes<86400:
+    while ttimes<TOTAL_TEST_TIME:
         # Start sniffer
         repeater = telnetlib.Telnet(str(sys.argv[2]))
         controller = telnetlib.Telnet(str(sys.argv[1]))
@@ -224,19 +227,13 @@ if __name__ == '__main__':
         repeater.set_debuglevel(0)
         sniffer.set_debuglevel(0)
 
-        # Reset Controller wireless configuration
-        sys.stdout.write("Reset AP config\n")
-        sys.stdout.flush()
-        reset_controller_default(controller)
-
 	start_time = time.time()
         tfile = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        sniffer_file = "/tmp/usb/sniffer/0GB_OPEN/"+tfile+"_Test_"+str(ttimes)+".pcap"
+        sniffer_file = "/tmp/usb/sniffer/p2_open/"+tfile+"_Test_"+str(ttimes)+".pcap"
         sendln(sniffer, "tcpdump -i ath0 -s 0 -w "+sniffer_file+" -K -n &", "Sniffer")
-        sys.stdout.write("Reset STA config\n")
-        sys.stdout.flush()
 	reset = False
-        reset = reset_repeater_default(repeater)
+        #reset = reset_repeater_default(repeater)
+        reset = repeater_wifi_reload(repeater)
         if not reset:
 		print "Wifi reload failed"
 		ttimes = ttimes + 1
@@ -244,22 +241,22 @@ if __name__ == '__main__':
 
         rwifi = is_wifi_on(repeater, 1, "ath09", "Repeater")
 
-        print "Set hidden off"
-        sendln(controller, "iwpriv ath08 hide_ssid 0", "Controller")
-        flushOutput(controller)
-        flushOutput(repeater)
-        i=0
-        while i<3:
-            i = i+1
-            rc = sendln(controller, "iwpriv ath08 get_hide_ssid", "Controller")
-            if "get_hide_ssid:0" in rc:
-                print "Set hidden SSID = 0 OK"
-                break
-            else:
-                print "Set hidden SSID = 0 failed"
-                time.sleep(1)
-        if i==3:
-            continue
+        #print "Set hidden off"
+        #sendln(controller, "iwpriv ath08 hide_ssid 0", "Controller")
+        #flushOutput(controller)
+        #flushOutput(repeater)
+        #i=0
+        #while i<3:
+        #    i = i+1
+        #    rc = sendln(controller, "iwpriv ath08 get_hide_ssid", "Controller")
+        #    if "get_hide_ssid:0" in rc:
+        #        print "Set hidden SSID = 0 OK"
+        #        break
+        #    else:
+        #        print "Set hidden SSID = 0 failed"
+        #        time.sleep(1)
+        #if i==3:
+        #    continue
 
         c_start_time = time.time()
         controller_wifi = is_wifi_on(controller, 40, "ath08", "Controller")
@@ -287,11 +284,12 @@ if __name__ == '__main__':
         sendln(sniffer,"sync;sync;sync", "Sniffer", False)
 
         #Just save failed Sniffer packet
+        '''
         if rc == "OK":
             sendln(sniffer, "rm -f " + sniffer_file)
             sendln(sniffer, " ", " ", False)
             sendln(sniffer,"sync;sync;sync", "Sniffer", False)
-
+        '''
         ttimes = ttimes + 1
 
         if rc == "FAILED":
